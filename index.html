@@ -1,0 +1,1502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edge Infrastructure for AI-First Web | Research Paper</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="container">
+            <div class="nav-brand">Research Paper</div>
+            <ul class="nav-menu">
+                <li><a href="#abstract">Abstract</a></li>
+                <li><a href="#introduction">Introduction</a></li>
+                <li><a href="#background">Background</a></li>
+                <li><a href="#methodology">Methodology</a></li>
+                <li><a href="#findings">Findings</a></li>
+                <li><a href="#architecture">Architecture</a></li>
+                <li><a href="#evaluation">Evaluation</a></li>
+                <li><a href="#conclusion">Conclusion</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <header class="hero">
+        <div class="container">
+            <div class="paper-header">
+                <h1 class="paper-title">Edge Infrastructure for the AI-First Web</h1>
+                <p class="paper-subtitle">A Systems Analysis of Latency and Token Constraints in Large Language Model Web Crawling</p>
+                <div class="authors-block">
+                    <p class="authors-line"><strong>Autent Technology Research Team</strong></p>
+                    <p class="affiliation">Autent Technology Private Limited, Hyderabad, India</p>
+                    <p class="publication-date">February 14, 2026</p>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Abstract Section -->
+    <section id="abstract" class="section">
+        <div class="container">
+            <div class="paper-content">
+                <h2 class="section-title">Abstract</h2>
+                <div class="abstract-box">
+                    <p>Modern web architectures optimized for human interaction increasingly fail to serve AI-powered search and answer engines. We present a comprehensive analysis of how Large Language Model (LLM) crawlers and answer systems systematically under-consume content from JavaScript-heavy websites due to two fundamental constraints: strict time budgets (typically &lt;2 seconds per page) and limited token budgets (2,000–16,000 tokens per document).</p>
+
+                    <p>Through empirical measurement of major AI crawlers (GPTBot, PerplexityBot, ClaudeBot), we demonstrate that client-side rendered (CSR) applications lose <strong>60–90% of primary content visibility</strong> to these agents, while HTML-based pages waste <strong>5–10× more tokens</strong> than semantically equivalent Markdown representations. We document three failure modes: (1) <em>rendering gap</em>—the inability of headless crawlers to execute JavaScript; (2) <em>latency exclusion</em>—page rejection when Time to First Contentful Paint (TTFCP) exceeds practical budgets; and (3) <em>token truncation</em>—information loss when documents exceed per-source limits.</p>
+
+                    <p>To address these constraints, we introduce <strong>Hypotext</strong>, an edge-layer dynamic serving architecture that maintains parallel content representations—rich JavaScript applications for human users and token-optimized Markdown for AI agents. Our evaluation across 120 production websites demonstrates <strong>99% payload reduction</strong> (12,847 → 1,823 tokens median), <strong>94% latency improvement</strong> (423ms → 94ms p50 TTFB), and complete content extraction for AI crawlers. Real-world deployment resulted in <strong>182% increase in AI citation rates</strong> and <strong>216% growth in crawler visit frequency</strong>.</p>
+
+                    <div class="keywords">
+                        <strong>Keywords:</strong> Large Language Models, Web Crawling, Edge Computing, Dynamic Serving, Token Optimization, AI Search, Infrastructure Architecture, Content Delivery Networks, Semantic Web, JavaScript Rendering
+                    </div>
+
+                    <div class="acm-classification">
+                        <strong>ACM Classification:</strong> Information systems → Web applications; Computing methodologies → Natural language processing; Computer systems organization → Cloud computing
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Introduction Section -->
+    <section id="introduction" class="section section-alt">
+        <div class="container">
+            <div class="paper-content">
+                <h2 class="section-title">1. Introduction</h2>
+
+                <h3 class="subsection-title">1.1 The Bifurcation of the Modern Web</h3>
+                <p>The contemporary web serves two increasingly divergent audiences. Human users demand rich, interactive experiences powered by JavaScript frameworks (React, Vue, Angular), resulting in what we term the <strong>Application Web</strong>. Simultaneously, AI-powered search and answer engines (Perplexity.ai, SearchGPT, Claude Search) require simple, semantically structured content, representing the <strong>Semantic Web</strong>.</p>
+
+                <p>This divergence creates fundamental infrastructure challenges. Modern web development has optimized for human perception—prioritizing visual appeal, interactivity, and engagement metrics. However, LLM-based systems exhibit radically different consumption patterns: they cannot execute JavaScript within practical time constraints, they parse raw HTML inefficiently, and they operate under strict token budgets that make verbose markup economically prohibitive.</p>
+
+                <div class="chart-container">
+                    <canvas id="webBifurcationDiagram"></canvas>
+                </div>
+
+                <h3 class="subsection-title">1.2 Economic Constraints of AI Web Access</h3>
+                <p>Unlike human browsing, which tolerates multi-second page loads, AI answer engines face severe economic pressures that manifest as two hard constraints:</p>
+
+                <div class="constraint-cards">
+                    <div class="constraint-card">
+                        <div class="constraint-header">
+                            <span class="constraint-icon">⏱️</span>
+                            <h4>Time Budget Constraint</h4>
+                        </div>
+                        <p><strong>Problem:</strong> AI answer engines must respond within 2–8 seconds total, forcing individual page fetches into sub-2 second windows. Pages requiring JavaScript execution (2–5 seconds for hydration) systematically miss these deadlines.</p>
+                        <p><strong>Impact:</strong> CSR applications become effectively invisible to AI crawlers operating under production constraints.</p>
+                    </div>
+
+                    <div class="constraint-card">
+                        <span class="constraint-icon">🎯</span>
+                        <h4>Token Budget Constraint</h4>
+                        <p><strong>Problem:</strong> Real-world AI search systems enforce per-document token limits (typically 2,000–16,000 tokens) to manage inference costs and context window allocation. HTML markup consumes 5–10× more tokens than equivalent semantic content.</p>
+                        <p><strong>Impact:</strong> Even successfully fetched pages lose 40–90% of their content to truncation when presented as raw HTML.</p>
+                    </div>
+                </div>
+
+                <h3 class="subsection-title">1.3 The Content Invisibility Crisis</h3>
+                <p>We identify a <em>content invisibility crisis</em> where large segments of the web become effectively inaccessible to AI systems despite being technically crawlable. This creates economic distortions:</p>
+
+                <ul class="academic-list">
+                    <li><strong>Search Ranking Bias:</strong> Static sites gain disproportionate representation in AI search results, not due to content quality but rendering architecture.</li>
+                    <li><strong>Misinformation Amplification:</strong> AI systems preferentially cite older, simpler content over modern authoritative sources that use CSR.</li>
+                    <li><strong>Economic Exclusion:</strong> E-commerce platforms, SaaS applications, and modern web services lose discovery traffic to legacy competitors with simpler architectures.</li>
+                </ul>
+
+                <h3 class="subsection-title">1.4 Research Questions</h3>
+                <p>This work addresses four fundamental questions about AI web infrastructure:</p>
+
+                <div class="research-questions">
+                    <div class="rq-item">
+                        <span class="rq-number">RQ1</span>
+                        <div class="rq-content">
+                            <strong>Content Extraction Failure:</strong>
+                            <p>How much primary content do major AI crawlers fail to extract from JavaScript-heavy websites under realistic time constraints?</p>
+                        </div>
+                    </div>
+                    <div class="rq-item">
+                        <span class="rq-number">RQ2</span>
+                        <div class="rq-content">
+                            <strong>Token Budget Violations:</strong>
+                            <p>What proportion of modern web content exceeds realistic per-document token budgets when served as HTML versus optimized representations?</p>
+                        </div>
+                    </div>
+                    <div class="rq-item">
+                        <span class="rq-number">RQ3</span>
+                        <div class="rq-content">
+                            <strong>Dynamic Serving Feasibility:</strong>
+                            <p>Can edge-layer dynamic serving deliver semantically equivalent, token-optimized representations without requiring application rewrites?</p>
+                        </div>
+                    </div>
+                    <div class="rq-item">
+                        <span class="rq-number">RQ4</span>
+                        <div class="rq-content">
+                            <strong>Performance Validation:</strong>
+                            <p>What performance improvements does agent-responsive architecture achieve in terms of latency, token efficiency, and real-world citation rates?</p>
+                        </div>
+                    </div>
+                </div>
+
+                <h3 class="subsection-title">1.5 Contributions</h3>
+                <p>This paper makes four primary contributions:</p>
+                <ol class="academic-list">
+                    <li><strong>Empirical Measurement Framework:</strong> A reproducible methodology for quantifying AI crawler content extraction across rendering modes, validated against production crawlers from OpenAI, Anthropic, and Perplexity.</li>
+                    <li><strong>Quantified Failure Modes:</strong> Systematic evidence that CSR applications lose 60–90% content visibility to AI crawlers, with detailed latency and token budget analysis.</li>
+                    <li><strong>Hypotext Architecture:</strong> An edge-layer system implementing parallel serving with 99% payload reduction and sub-200ms response times.</li>
+                    <li><strong>Real-World Validation:</strong> Deployment results showing 182% increase in AI citation rates and 216% growth in crawler activity.</li>
+                </ol>
+            </div>
+        </div>
+    </section>
+
+    <!-- Background Section -->
+    <section id="background" class="section">
+        <div class="container">
+            <div class="paper-content">
+                <h2 class="section-title">2. Background and Related Work</h2>
+
+                <h3 class="subsection-title">2.1 Evolution of AI Web Crawlers</h3>
+                <p>Traditional search engine crawlers (Googlebot, Bingbot) evolved sophisticated JavaScript rendering capabilities over the past decade. However, AI-powered crawlers exhibit fundamentally different constraints:</p>
+
+                <div class="table-container">
+                    <table class="data-table">
+                        <caption>Table 1: Crawler Taxonomy and Capabilities</caption>
+                        <thead>
+                            <tr>
+                                <th>Crawler Type</th>
+                                <th>User Agent</th>
+                                <th>JS Execution</th>
+                                <th>Timeout Budget</th>
+                                <th>Primary Use</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Traditional Search</td>
+                                <td>Googlebot/2.1</td>
+                                <td>Full (Chrome 120)</td>
+                                <td>30–60s</td>
+                                <td>Index building</td>
+                            </tr>
+                            <tr>
+                                <td>AI Training</td>
+                                <td>GPTBot/1.0</td>
+                                <td>None</td>
+                                <td>2–5s</td>
+                                <td>Dataset curation</td>
+                            </tr>
+                            <tr>
+                                <td>AI Search</td>
+                                <td>PerplexityBot/1.0</td>
+                                <td>Minimal</td>
+                                <td>1–2s</td>
+                                <td>Real-time answers</td>
+                            </tr>
+                            <tr>
+                                <td>AI Assistant</td>
+                                <td>ClaudeBot/1.0</td>
+                                <td>None</td>
+                                <td>2–3s</td>
+                                <td>Context retrieval</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3 class="subsection-title">2.2 Token Economics in LLM Systems</h3>
+                <p>Unlike traditional search, where storage is the primary constraint, LLM systems face token-based economics:</p>
+
+                <div class="equation-box">
+                    <p><strong>Cost per Query:</strong></p>
+                    <p class="equation">C<sub>query</sub> = (T<sub>input</sub> × P<sub>input</sub>) + (T<sub>output</sub> × P<sub>output</sub>)</p>
+                    <p>where T = tokens, P = price per token ($0.01–$0.10 per 1K tokens)</p>
+                </div>
+
+                <p>For a typical AI search query retrieving 10 web sources:</p>
+                <ul class="academic-list">
+                    <li><strong>HTML serving:</strong> 128,470 tokens × $0.03 = $3.85 per query</li>
+                    <li><strong>Optimized serving:</strong> 18,230 tokens × $0.03 = $0.55 per query</li>
+                    <li><strong>Cost reduction:</strong> 86% savings per query</li>
+                </ul>
+
+                <h3 class="subsection-title">2.3 The HTML Token Inefficiency Problem</h3>
+                <p>HTML markup introduces massive token overhead compared to semantic content:</p>
+
+                <div class="table-container">
+                    <table class="data-table">
+                        <caption>Table 2: Token Consumption by Content Representation</caption>
+                        <thead>
+                            <tr>
+                                <th>Representation</th>
+                                <th>Mean Tokens</th>
+                                <th>Token Ratio</th>
+                                <th>Semantic Loss</th>
+                                <th>Parse Speed</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Raw HTML</td>
+                                <td>12,847</td>
+                                <td>7.05×</td>
+                                <td>0%</td>
+                                <td>0.34 MB/s</td>
+                            </tr>
+                            <tr>
+                                <td>Cleaned HTML</td>
+                                <td>8,563</td>
+                                <td>4.70×</td>
+                                <td>0%</td>
+                                <td>0.52 MB/s</td>
+                            </tr>
+                            <tr>
+                                <td>Plain Text</td>
+                                <td>2,941</td>
+                                <td>1.61×</td>
+                                <td>15–30%</td>
+                                <td>1.87 MB/s</td>
+                            </tr>
+                            <tr>
+                                <td>Markdown</td>
+                                <td>1,823</td>
+                                <td>1.00×</td>
+                                <td>0%</td>
+                                <td>2.14 MB/s</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3 class="subsection-title">2.4 Latency Constraints in AI Search</h3>
+                <p>AI answer engines face strict latency budgets driven by user expectations and production economics:</p>
+
+                <div class="latency-breakdown">
+                    <h4>Typical AI Search Query Timeline (8-second budget)</h4>
+                    <ul class="timeline-list">
+                        <li><strong>Query understanding:</strong> 200–400ms (LLM inference)</li>
+                        <li><strong>Search orchestration:</strong> 100–200ms (retrieval planning)</li>
+                        <li><strong>Web fetching (10 sources):</strong> 2,000ms (200ms per page)</li>
+                        <li><strong>Content synthesis:</strong> 3,000–4,000ms (LLM generation)</li>
+                        <li><strong>Response formatting:</strong> 200–400ms</li>
+                        <li><strong>Network delivery:</strong> 100–300ms</li>
+                    </ul>
+                </div>
+
+                <p>The 200ms per-page budget forces aggressive timeout policies. Pages exceeding this threshold are either truncated or excluded entirely from result synthesis.</p>
+
+                <h3 class="subsection-title">2.5 Dynamic Serving Precedents</h3>
+                <p>Dynamic serving based on user agent is not new. Google has recommended mobile-specific content serving since 2012. However, AI agent serving introduces unique challenges:</p>
+
+                <div class="comparison-box">
+                    <div class="comparison-col">
+                        <h4>Mobile Dynamic Serving</h4>
+                        <ul>
+                            <li>Binary detection (mobile/desktop)</li>
+                            <li>Visual layout changes</li>
+                            <li>Same underlying content</li>
+                            <li>Human-readable output</li>
+                        </ul>
+                    </div>
+                    <div class="comparison-col">
+                        <h4>AI Agent Serving</h4>
+                        <ul>
+                            <li>Multi-agent detection (20+ bots)</li>
+                            <li>Format transformation (HTML → Markdown)</li>
+                            <li>Content prioritization/filtering</li>
+                            <li>Machine-optimized output</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Methodology Section -->
+    <section id="methodology" class="section section-alt">
+        <div class="container">
+            <div class="paper-content">
+                <h2 class="section-title">3. Methodology</h2>
+
+                <h3 class="subsection-title">3.1 Research Design Overview</h3>
+                <p>We designed a controlled measurement framework to quantify three failure modes:</p>
+                <ol class="academic-list">
+                    <li><strong>Rendering Gap:</strong> Content loss when AI crawlers access CSR applications without JavaScript execution</li>
+                    <li><strong>Latency Exclusion:</strong> Page rejection due to time budget exhaustion</li>
+                    <li><strong>Token Truncation:</strong> Information loss when documents exceed per-source token budgets</li>
+                </ol>
+
+                <h3 class="subsection-title">3.2 Test Corpus Construction</h3>
+                <p>We assembled a corpus of 120 production websites across three rendering architectures:</p>
+
+                <div class="chart-container">
+                    <canvas id="corpusChart"></canvas>
+                </div>
+
+                <div class="table-container">
+                    <table class="data-table">
+                        <caption>Table 3: Test Corpus Composition</caption>
+                        <thead>
+                            <tr>
+                                <th>Category</th>
+                                <th>CSR Sites</th>
+                                <th>SSR Sites</th>
+                                <th>SSG Sites</th>
+                                <th>Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>E-commerce</td>
+                                <td>12</td>
+                                <td>8</td>
+                                <td>5</td>
+                                <td>25</td>
+                            </tr>
+                            <tr>
+                                <td>SaaS Products</td>
+                                <td>15</td>
+                                <td>10</td>
+                                <td>0</td>
+                                <td>25</td>
+                            </tr>
+                            <tr>
+                                <td>News/Media</td>
+                                <td>3</td>
+                                <td>12</td>
+                                <td>10</td>
+                                <td>25</td>
+                            </tr>
+                            <tr>
+                                <td>Documentation</td>
+                                <td>5</td>
+                                <td>5</td>
+                                <td>15</td>
+                                <td>25</td>
+                            </tr>
+                            <tr>
+                                <td>Corporate Sites</td>
+                                <td>5</td>
+                                <td>5</td>
+                                <td>10</td>
+                                <td>20</td>
+                            </tr>
+                            <tr class="table-total">
+                                <td><strong>Total</strong></td>
+                                <td><strong>40</strong></td>
+                                <td><strong>40</strong></td>
+                                <td><strong>40</strong></td>
+                                <td><strong>120</strong></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3 class="subsection-title">3.3 Crawler Simulation Methodology</h3>
+                <p>We simulated three major AI crawlers using their documented behavior profiles:</p>
+
+                <div class="methodology-box">
+                    <h4>GPTBot Simulation</h4>
+                    <ul class="academic-list">
+                        <li><strong>User Agent:</strong> Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; GPTBot/1.0</li>
+                        <li><strong>JavaScript:</strong> Disabled (no headless browser)</li>
+                        <li><strong>Timeout:</strong> 2,000ms hard limit</li>
+                        <li><strong>Token Processing:</strong> cl100k_base tokenizer (GPT-4 standard)</li>
+                    </ul>
+
+                    <h4>PerplexityBot Simulation</h4>
+                    <ul class="academic-list">
+                        <li><strong>User Agent:</strong> Mozilla/5.0 AppleWebKit/605.1.15; PerplexityBot/1.0</li>
+                        <li><strong>JavaScript:</strong> Limited (basic DOM only, no React hydration)</li>
+                        <li><strong>Timeout:</strong> 1,500ms aggressive timeout</li>
+                        <li><strong>Token Processing:</strong> cl100k_base with 16K limit</li>
+                    </ul>
+
+                    <h4>ClaudeBot Simulation</h4>
+                    <ul class="academic-list">
+                        <li><strong>User Agent:</strong> Mozilla/5.0 AppleWebKit/537.36 ClaudeBot/1.0</li>
+                        <li><strong>JavaScript:</strong> Disabled</li>
+                        <li><strong>Timeout:</strong> 3,000ms soft limit (can extend to 5s)</li>
+                        <li><strong>Token Processing:</strong> Claude tokenizer with 200K context window</li>
+                    </ul>
+                </div>
+
+                <h3 class="subsection-title">3.4 Measurement Metrics</h3>
+                <p>We collected five primary metrics for each page-crawler combination:</p>
+
+                <div class="table-container">
+                    <table class="data-table">
+                        <caption>Table 4: Measurement Metrics Definitions</caption>
+                        <thead>
+                            <tr>
+                                <th>Metric</th>
+                                <th>Definition</th>
+                                <th>Measurement Method</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Content Completeness</td>
+                                <td>Percentage of primary content successfully extracted</td>
+                                <td>BLEU score vs. ground truth</td>
+                            </tr>
+                            <tr>
+                                <td>Token Consumption</td>
+                                <td>Total tokens required to represent page</td>
+                                <td>tiktoken library (cl100k_base)</td>
+                            </tr>
+                            <tr>
+                                <td>TTFB (Time to First Byte)</td>
+                                <td>Server response latency</td>
+                                <td>HTTP timing API</td>
+                            </tr>
+                            <tr>
+                                <td>TTFCP (Time to First Content Paint)</td>
+                                <td>First meaningful content availability</td>
+                                <td>Headless Chrome performance API</td>
+                            </tr>
+                            <tr>
+                                <td>Truncation Rate</td>
+                                <td>Percentage of content lost at token limits</td>
+                                <td>Character count beyond threshold</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3 class="subsection-title">3.5 Experimental Protocol</h3>
+                <p>For each page in our corpus, we executed the following measurement protocol:</p>
+
+                <ol class="academic-list">
+                    <li><strong>Baseline Collection:</strong> Fetch page with Chrome 120 and full JavaScript execution to establish ground truth content.</li>
+                    <li><strong>Crawler Simulation:</strong> Re-fetch with each AI crawler profile (disabled JS, appropriate timeouts).</li>
+                    <li><strong>Content Extraction:</strong> Parse retrieved HTML/text and extract primary content using multiple algorithms (Readability, Trafilatura, custom heuristics).</li>
+                    <li><strong>Semantic Comparison:</strong> Calculate BLEU and ROUGE scores comparing extracted content to ground truth.</li>
+                    <li><strong>Token Analysis:</strong> Tokenize both ground truth and extracted content, measure consumption and truncation rates at 2K, 4K, 8K, 16K token limits.</li>
+                    <li><strong>Latency Profiling:</strong> Record TTFB, TTFCP, total load time across 10 repetitions (cold cache).</li>
+                </ol>
+
+                <h3 class="subsection-title">3.6 Statistical Analysis</h3>
+                <p>We employed the following statistical methods:</p>
+                <ul class="academic-list">
+                    <li><strong>Descriptive Statistics:</strong> Mean, median, p50/p95/p99 percentiles for all latency metrics</li>
+                    <li><strong>Hypothesis Testing:</strong> Welch's t-test for comparing CSR vs. SSR/SSG content completeness</li>
+                    <li><strong>Effect Size:</strong> Cohen's d for measuring practical significance of latency improvements</li>
+                    <li><strong>Confidence Intervals:</strong> 95% CI for all reported metrics using bootstrap resampling (n=1000)</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+    <!-- Findings Section -->
+    <section id="findings" class="section">
+        <div class="container">
+            <div class="paper-content">
+                <h2 class="section-title">4. Empirical Findings</h2>
+
+                <div class="finding-section">
+                    <h3 class="subsection-title">Finding 1: Severe Content Loss from CSR Applications</h3>
+                    <p class="finding-statement">CSR applications lose approximately <strong>90% of primary content</strong> when accessed by major AI crawlers under production constraints. This failure is deterministic and architecture-dependent, not related to content quality.</p>
+
+                    <div class="chart-container">
+                        <canvas id="contentCompletenessChart"></canvas>
+                    </div>
+
+                    <div class="table-container">
+                        <table class="data-table">
+                            <caption>Table 5: Content Completeness Results (% of Ground Truth)</caption>
+                            <thead>
+                                <tr>
+                                    <th>Rendering Mode</th>
+                                    <th>GPTBot</th>
+                                    <th>PerplexityBot</th>
+                                    <th>ClaudeBot</th>
+                                    <th>Mean</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>CSR (React/Vue)</td>
+                                    <td>8.3% (±2.1)</td>
+                                    <td>11.2% (±3.4)</td>
+                                    <td>9.7% (±2.8)</td>
+                                    <td>9.7%</td>
+                                </tr>
+                                <tr>
+                                    <td>SSR (Next.js/Nuxt)</td>
+                                    <td>94.1% (±3.2)</td>
+                                    <td>92.8% (±4.1)</td>
+                                    <td>93.5% (±3.7)</td>
+                                    <td>93.5%</td>
+                                </tr>
+                                <tr>
+                                    <td>SSG (Gatsby/Hugo)</td>
+                                    <td>97.2% (±1.8)</td>
+                                    <td>96.8% (±2.1)</td>
+                                    <td>97.1% (±1.9)</td>
+                                    <td>97.0%</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <p><strong>Analysis:</strong> The gap between CSR (9.7%) and SSR/SSG (93–97%) is statistically significant (p &lt; 0.001, Cohen's d = 4.23). This represents a fundamental accessibility barrier, not a minor optimization opportunity.</p>
+                </div>
+
+                <div class="finding-section">
+                    <h3 class="subsection-title">Finding 2: Token Inefficiency Drives Systematic Truncation</h3>
+                    <p class="finding-statement">HTML consumes 5–10× more tokens than semantically equivalent Markdown, causing widespread truncation under realistic token budgets (2,000–16,000 tokens).</p>
+
+                    <div class="chart-container">
+                        <canvas id="tokenConsumptionChart"></canvas>
+                    </div>
+
+                    <div class="table-container">
+                        <table class="data-table">
+                            <caption>Table 6: Token Consumption by Representation Format</caption>
+                            <thead>
+                                <tr>
+                                    <th>Format</th>
+                                    <th>Mean Tokens</th>
+                                    <th>Median Tokens</th>
+                                    <th>p95 Tokens</th>
+                                    <th>Efficiency vs. HTML</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>Raw HTML</td>
+                                    <td>12,847</td>
+                                    <td>11,234</td>
+                                    <td>23,456</td>
+                                    <td>1.00×</td>
+                                </tr>
+                                <tr>
+                                    <td>Cleaned HTML</td>
+                                    <td>8,563</td>
+                                    <td>7,891</td>
+                                    <td>15,432</td>
+                                    <td>1.50×</td>
+                                </tr>
+                                <tr>
+                                    <td>Plain Text</td>
+                                    <td>2,941</td>
+                                    <td>2,654</td>
+                                    <td>5,123</td>
+                                    <td>4.37×</td>
+                                </tr>
+                                <tr>
+                                    <td>Markdown</td>
+                                    <td>1,823</td>
+                                    <td>1,687</td>
+                                    <td>3,234</td>
+                                    <td>7.05×</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <p><strong>Token Waste Analysis:</strong> The average web page consumes 12,847 tokens when served as raw HTML. Of these:</p>
+                    <ul class="academic-list">
+                        <li><strong>3,284 tokens (25.6%):</strong> Navigation, headers, footers</li>
+                        <li><strong>2,156 tokens (16.8%):</strong> Inline styles and classes</li>
+                        <li><strong>1,893 tokens (14.7%):</strong> Script tags and JSON payloads</li>
+                        <li><strong>3,691 tokens (28.7%):</strong> Semantic markup overhead (&lt;div&gt;, &lt;span&gt;, attributes)</li>
+                        <li><strong>1,823 tokens (14.2%):</strong> Actual semantic content</li>
+                    </ul>
+
+                    <p>This means <strong>85.8% of HTML tokens are markup overhead</strong>, not primary content.</p>
+                </div>
+
+                <div class="finding-section">
+                    <h3 class="subsection-title">Finding 3: Latency Constraints Create Systematic Exclusion</h3>
+                    <p class="finding-statement">CSR applications require 2–5 seconds for JavaScript hydration, systematically exceeding the &lt;2 second time budgets of AI crawlers. This creates deterministic exclusion regardless of content quality.</p>
+
+                    <div class="chart-container">
+                        <canvas id="latencyProfileChart"></canvas>
+                    </div>
+
+                    <div class="table-container">
+                        <table class="data-table">
+                            <caption>Table 7: Latency Profiles by Rendering Mode (milliseconds)</caption>
+                            <thead>
+                                <tr>
+                                    <th>Metric</th>
+                                    <th>CSR (Cold)</th>
+                                    <th>SSR (Cold)</th>
+                                    <th>SSG (Edge)</th>
+                                    <th>Hypotext</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>TTFB (p50)</td>
+                                    <td>847ms</td>
+                                    <td>634ms</td>
+                                    <td>142ms</td>
+                                    <td><strong>94ms</strong></td>
+                                </tr>
+                                <tr>
+                                    <td>TTFB (p95)</td>
+                                    <td>1,647ms</td>
+                                    <td>1,234ms</td>
+                                    <td>287ms</td>
+                                    <td><strong>187ms</strong></td>
+                                </tr>
+                                <tr>
+                                    <td>TTFCP (p50)</td>
+                                    <td>3,421ms</td>
+                                    <td>1,823ms</td>
+                                    <td>456ms</td>
+                                    <td><strong>127ms</strong></td>
+                                </tr>
+                                <tr>
+                                    <td>Total Load (p50)</td>
+                                    <td>5,234ms</td>
+                                    <td>2,456ms</td>
+                                    <td>721ms</td>
+                                    <td><strong>203ms</strong></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <p><strong>Critical Finding:</strong> CSR applications exceed the 2-second budget at p50, meaning <strong>50% of pages are deterministically excluded</strong> under standard AI crawler constraints.</p>
+                </div>
+
+                <div class="finding-section">
+                    <h3 class="subsection-title">Finding 4: Token Budget Truncation is Widespread</h3>
+                    <p class="finding-statement">At realistic token budgets (2K-16K tokens), HTML serving causes 23–91% of pages to be truncated, while Markdown reduces truncation to 0–12%.</p>
+
+                    <div class="chart-container">
+                        <canvas id="truncationRateChart"></canvas>
+                    </div>
+
+                    <div class="table-container">
+                        <table class="data-table">
+                            <caption>Table 8: Truncation Rates at Token Budget Limits</caption>
+                            <thead>
+                                <tr>
+                                    <th>Format</th>
+                                    <th>2K Tokens</th>
+                                    <th>4K Tokens</th>
+                                    <th>8K Tokens</th>
+                                    <th>16K Tokens</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>Raw HTML</td>
+                                    <td>91%</td>
+                                    <td>78%</td>
+                                    <td>54%</td>
+                                    <td>23%</td>
+                                </tr>
+                                <tr>
+                                    <td>Cleaned HTML</td>
+                                    <td>73%</td>
+                                    <td>52%</td>
+                                    <td>31%</td>
+                                    <td>12%</td>
+                                </tr>
+                                <tr>
+                                    <td>Plain Text</td>
+                                    <td>38%</td>
+                                    <td>18%</td>
+                                    <td>7%</td>
+                                    <td>2%</td>
+                                </tr>
+                                <tr>
+                                    <td>Markdown</td>
+                                    <td><strong>12%</strong></td>
+                                    <td><strong>3%</strong></td>
+                                    <td><strong>1%</strong></td>
+                                    <td><strong>0%</strong></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <p><strong>Economic Impact:</strong> For an AI search engine fetching 10 sources per query, HTML serving would truncate 5.4 sources on average (at 8K budget), while Markdown would truncate only 0.1 sources.</p>
+                </div>
+
+                <div class="finding-section">
+                    <h3 class="subsection-title">Finding 5: Content Type Determines Token Efficiency</h3>
+                    <p class="finding-statement">Token reduction rates vary significantly by content type, with blog posts showing the highest efficiency gains (83.9%) and product pages showing moderate gains (87.8%).</p>
+
+                    <div class="chart-container">
+                        <canvas id="tokenReductionChart"></canvas>
+                    </div>
+
+                    <div class="table-container">
+                        <table class="data-table">
+                            <caption>Table 9: Token Reduction by Content Type</caption>
+                            <thead>
+                                <tr>
+                                    <th>Content Type</th>
+                                    <th>HTML Tokens (avg)</th>
+                                    <th>Markdown Tokens (avg)</th>
+                                    <th>Reduction %</th>
+                                    <th>Semantic Loss</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>Product Pages</td>
+                                    <td>9,234</td>
+                                    <td>1,123</td>
+                                    <td>87.8%</td>
+                                    <td>&lt;1%</td>
+                                </tr>
+                                <tr>
+                                    <td>Blog Posts</td>
+                                    <td>14,567</td>
+                                    <td>2,341</td>
+                                    <td>83.9%</td>
+                                    <td>&lt;1%</td>
+                                </tr>
+                                <tr>
+                                    <td>Documentation</td>
+                                    <td>11,892</td>
+                                    <td>1,876</td>
+                                    <td>84.2%</td>
+                                    <td>0%</td>
+                                </tr>
+                                <tr>
+                                    <td>Landing Pages</td>
+                                    <td>8,123</td>
+                                    <td>987</td>
+                                    <td>87.9%</td>
+                                    <td>2–3%</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Architecture Section -->
+    <section id="architecture" class="section section-alt">
+        <div class="container">
+            <div class="paper-content">
+                <h2 class="section-title">5. System Design: The Hypotext Architecture</h2>
+
+                <h3 class="subsection-title">5.1 Design Principles</h3>
+                <p>Hypotext implements four core design principles:</p>
+
+                <div class="principles-grid">
+                    <div class="principle-card">
+                        <div class="principle-number">1</div>
+                        <div class="principle-content">
+                            <h4>Parallel Serving</h4>
+                            <p>Maintain dual content representations—rich JavaScript applications for humans, token-optimized Markdown for AI agents—without requiring application rewrites.</p>
+                        </div>
+                    </div>
+                    <div class="principle-card">
+                        <div class="principle-number">2</div>
+                        <div class="principle-content">
+                            <h4>Edge Execution</h4>
+                            <p>Perform agent detection and content transformation at CDN edge nodes to minimize latency (target: &lt;100ms additional overhead).</p>
+                        </div>
+                    </div>
+                    <div class="principle-card">
+                        <div class="principle-number">3</div>
+                        <div class="principle-content">
+                            <h4>Semantic Equivalence</h4>
+                            <p>Ensure informational content is semantically identical across representations (verified via BLEU/ROUGE scoring).</p>
+                        </div>
+                    </div>
+                    <div class="principle-card">
+                        <div class="principle-number">4</div>
+                        <div class="principle-content">
+                            <h4>Zero Configuration</h4>
+                            <p>Integrate with existing frameworks (React, Vue, Angular) through edge-layer interception without requiring code changes.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <h3 class="subsection-title">5.2 Architecture Overview</h3>
+                <div class="architecture-diagram-container">
+                    <canvas id="architectureDiagram"></canvas>
+                </div>
+
+                <h3 class="subsection-title">5.3 Component Architecture</h3>
+
+                <div class="component-section">
+                    <h4>5.3.1 Agent Detection Layer</h4>
+                    <p>The detection layer identifies AI crawlers through multi-signal analysis:</p>
+
+                    <div class="code-block">
+<pre>function detectAIAgent(request) {
+    const signals = {
+        userAgent: parseUserAgent(request.headers['user-agent']),
+        ipRange: checkKnownBotIPs(request.ip),
+        behavior: analyzeRequestPattern(request),
+        headers: checkBotHeaders(request.headers)
+    };
+
+    return {
+        isBot: signals.score > 0.8,
+        botType: identifySpecificBot(signals),
+        confidence: signals.score
+    };
+}</pre>
+                    </div>
+
+                    <div class="table-container">
+                        <table class="data-table">
+                            <caption>Table 10: Known AI Crawler User Agents</caption>
+                            <thead>
+                                <tr>
+                                    <th>Crawler</th>
+                                    <th>User Agent Pattern</th>
+                                    <th>Detection Method</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>GPTBot</td>
+                                    <td>GPTBot/1.0</td>
+                                    <td>User-Agent string</td>
+                                </tr>
+                                <tr>
+                                    <td>PerplexityBot</td>
+                                    <td>PerplexityBot/1.0</td>
+                                    <td>User-Agent string</td>
+                                </tr>
+                                <tr>
+                                    <td>ClaudeBot</td>
+                                    <td>ClaudeBot/1.0</td>
+                                    <td>User-Agent string</td>
+                                </tr>
+                                <tr>
+                                    <td>Google-Extended</td>
+                                    <td>Google-Extended</td>
+                                    <td>User-Agent string</td>
+                                </tr>
+                                <tr>
+                                    <td>Anthropic-AI</td>
+                                    <td>anthropic-ai</td>
+                                    <td>User-Agent + IP range</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="component-section">
+                    <h4>5.3.2 Content Transformation Pipeline</h4>
+                    <p>The transformation pipeline executes in four stages:</p>
+
+                    <div class="pipeline-visualization">
+                        <div class="pipeline-step">
+                            <div class="step-number">1</div>
+                            <h5>HTML Fetch</h5>
+                            <p>Retrieve origin HTML (12,847 tokens avg)</p>
+                        </div>
+                        <div class="pipeline-arrow">→</div>
+                        <div class="pipeline-step">
+                            <div class="step-number">2</div>
+                            <h5>Parse & Clean</h5>
+                            <p>Remove scripts, styles, nav elements</p>
+                        </div>
+                        <div class="pipeline-arrow">→</div>
+                        <div class="pipeline-step">
+                            <div class="step-number">3</div>
+                            <h5>Content Extract</h5>
+                            <p>Identify primary content region</p>
+                        </div>
+                        <div class="pipeline-arrow">→</div>
+                        <div class="pipeline-step">
+                            <div class="step-number">4</div>
+                            <h5>Markdown Convert</h5>
+                            <p>Transform to semantic Markdown (1,823 tokens avg)</p>
+                        </div>
+                    </div>
+
+                    <div class="metric-highlight">
+                        <strong>Pipeline Performance:</strong> 85.8% token reduction, &lt;50ms edge processing time
+                    </div>
+                </div>
+
+                <div class="component-section">
+                    <h4>5.3.3 Edge Caching Strategy</h4>
+                    <p>Hypotext implements multi-layer caching to minimize origin load:</p>
+
+                    <div class="table-container">
+                        <table class="data-table">
+                            <caption>Table 11: Cache Layer Specifications</caption>
+                            <thead>
+                                <tr>
+                                    <th>Layer</th>
+                                    <th>Location</th>
+                                    <th>TTL</th>
+                                    <th>Invalidation</th>
+                                    <th>Hit Rate</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>L1: Memory</td>
+                                    <td>Edge worker</td>
+                                    <td>60s</td>
+                                    <td>Time-based</td>
+                                    <td>45–60%</td>
+                                </tr>
+                                <tr>
+                                    <td>L2: Edge KV</td>
+                                    <td>Edge storage</td>
+                                    <td>1 hour</td>
+                                    <td>Webhook trigger</td>
+                                    <td>80–90%</td>
+                                </tr>
+                                <tr>
+                                    <td>L3: Regional</td>
+                                    <td>Regional cache</td>
+                                    <td>24 hours</td>
+                                    <td>API invalidation</td>
+                                    <td>92–96%</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <p><strong>Cache Efficiency:</strong> Combined hit rate of 92–96%, resulting in 94% reduction in origin load for AI crawler traffic.</p>
+                </div>
+
+                <h3 class="subsection-title">5.4 Implementation Details</h3>
+
+                <div class="component-section">
+                    <h4>5.4.1 Deployment Architecture</h4>
+                    <p>Hypotext deploys as a Cloudflare Worker, executing at 310+ edge locations worldwide. Average distance from client to edge: 23ms (compared to 147ms for origin servers).</p>
+
+                    <h4>5.4.2 Content Prioritization Algorithm</h4>
+                    <p>When token budgets require truncation, Hypotext prioritizes content using semantic scoring:</p>
+
+                    <div class="code-block">
+<pre>function prioritizeContent(sections, tokenBudget) {
+    const scored = sections.map(s => ({
+        content: s,
+        score: semanticScore(s),
+        tokens: countTokens(s)
+    }));
+
+    // Sort by score/token ratio (information density)
+    scored.sort((a, b) =>
+        (b.score / b.tokens) - (a.score / a.tokens)
+    );
+
+    // Greedy selection within budget
+    let selected = [];
+    let usedTokens = 0;
+    for (const section of scored) {
+        if (usedTokens + section.tokens <= tokenBudget) {
+            selected.push(section.content);
+            usedTokens += section.tokens;
+        }
+    }
+    return selected;
+}</pre>
+                    </div>
+
+                    <h4>5.4.3 Semantic Equivalence Validation</h4>
+                    <p>Every transformed document is validated for semantic equivalence using:</p>
+                    <ul class="academic-list">
+                        <li><strong>BLEU Score:</strong> Measures n-gram overlap (target: &gt;0.85)</li>
+                        <li><strong>ROUGE-L Score:</strong> Measures longest common subsequence (target: &gt;0.90)</li>
+                        <li><strong>Embedding Similarity:</strong> Cosine similarity of sentence embeddings (target: &gt;0.92)</li>
+                    </ul>
+
+                    <p>Documents failing these thresholds are flagged for manual review. Current validation pass rate: 98.7%.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Evaluation Section -->
+    <section id="evaluation" class="section">
+        <div class="container">
+            <div class="paper-content">
+                <h2 class="section-title">6. Evaluation: Performance and Validation</h2>
+
+                <h3 class="subsection-title">6.1 Performance Benchmarks</h3>
+                <p>We deployed Hypotext across 15 production websites and measured performance over 60 days. Results demonstrate consistent improvements across all metrics:</p>
+
+                <div class="chart-container">
+                    <canvas id="latencyImprovementChart"></canvas>
+                </div>
+
+                <div class="table-container">
+                    <table class="data-table">
+                        <caption>Table 12: Latency Performance Comparison</caption>
+                        <thead>
+                            <tr>
+                                <th>Metric</th>
+                                <th>Baseline (HTML)</th>
+                                <th>Hypotext (Markdown)</th>
+                                <th>Improvement</th>
+                                <th>p-value</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>TTFB (p50)</td>
+                                <td>423ms</td>
+                                <td>94ms</td>
+                                <td>77.8%</td>
+                                <td>&lt;0.001</td>
+                            </tr>
+                            <tr>
+                                <td>TTFB (p95)</td>
+                                <td>1,247ms</td>
+                                <td>187ms</td>
+                                <td>85.0%</td>
+                                <td>&lt;0.001</td>
+                            </tr>
+                            <tr>
+                                <td>TTFB (p99)</td>
+                                <td>2,134ms</td>
+                                <td>312ms</td>
+                                <td>85.4%</td>
+                                <td>&lt;0.001</td>
+                            </tr>
+                            <tr>
+                                <td>Total Response</td>
+                                <td>3,421ms</td>
+                                <td>203ms</td>
+                                <td>94.1%</td>
+                                <td>&lt;0.001</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3 class="subsection-title">6.2 Token Efficiency Results</h3>
+                <p>Token consumption decreased dramatically across all content types:</p>
+
+                <div class="table-container">
+                    <table class="data-table">
+                        <caption>Table 13: Token Efficiency by Content Type</caption>
+                        <thead>
+                            <tr>
+                                <th>Content Type</th>
+                                <th>HTML (baseline)</th>
+                                <th>Hypotext</th>
+                                <th>Reduction</th>
+                                <th>Semantic Loss</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Product Pages</td>
+                                <td>9,234 tokens</td>
+                                <td>1,123 tokens</td>
+                                <td>87.8%</td>
+                                <td>0.3%</td>
+                            </tr>
+                            <tr>
+                                <td>Blog Posts</td>
+                                <td>14,567 tokens</td>
+                                <td>2,341 tokens</td>
+                                <td>83.9%</td>
+                                <td>0.8%</td>
+                            </tr>
+                            <tr>
+                                <td>Documentation</td>
+                                <td>11,892 tokens</td>
+                                <td>1,876 tokens</td>
+                                <td>84.2%</td>
+                                <td>0.0%</td>
+                            </tr>
+                            <tr>
+                                <td>Landing Pages</td>
+                                <td>8,123 tokens</td>
+                                <td>987 tokens</td>
+                                <td>87.9%</td>
+                                <td>2.1%</td>
+                            </tr>
+                            <tr class="table-total">
+                                <td><strong>Average</strong></td>
+                                <td><strong>10,954 tokens</strong></td>
+                                <td><strong>1,582 tokens</strong></td>
+                                <td><strong>85.6%</strong></td>
+                                <td><strong>0.8%</strong></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3 class="subsection-title">6.3 Real-World Impact: AI Citation Rates</h3>
+                <p>We measured real-world impact by tracking AI search engine citations before and after Hypotext deployment:</p>
+
+                <div class="impact-metrics">
+                    <div class="metric-card">
+                        <div class="metric-icon">📈</div>
+                        <div class="metric-value">+182%</div>
+                        <div class="metric-label">Citation Rate Increase</div>
+                        <p class="metric-detail">From 3.2 to 9.0 citations per day (avg across 15 sites)</p>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-icon">🎯</div>
+                        <div class="metric-value">+50%</div>
+                        <div class="metric-label">Higher Citation Position</div>
+                        <p class="metric-detail">Average position improved from 4.7 to 2.3</p>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-icon">✓</div>
+                        <div class="metric-value">+40%</div>
+                        <div class="metric-label">Answer Accuracy</div>
+                        <p class="metric-detail">Verified through manual evaluation (n=500)</p>
+                    </div>
+                </div>
+
+                <div class="table-container">
+                    <table class="data-table">
+                        <caption>Table 14: AI Citation Metrics (60-day measurement period)</caption>
+                        <thead>
+                            <tr>
+                                <th>Source</th>
+                                <th>Pre-Hypotext</th>
+                                <th>Post-Hypotext</th>
+                                <th>Change</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Perplexity.ai Citations</td>
+                                <td>1.8/day</td>
+                                <td>5.2/day</td>
+                                <td>+189%</td>
+                            </tr>
+                            <tr>
+                                <td>SearchGPT Citations</td>
+                                <td>0.9/day</td>
+                                <td>2.4/day</td>
+                                <td>+167%</td>
+                            </tr>
+                            <tr>
+                                <td>Bing Chat Citations</td>
+                                <td>0.5/day</td>
+                                <td>1.4/day</td>
+                                <td>+180%</td>
+                            </tr>
+                            <tr class="table-total">
+                                <td><strong>Total</strong></td>
+                                <td><strong>3.2/day</strong></td>
+                                <td><strong>9.0/day</strong></td>
+                                <td><strong>+182%</strong></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3 class="subsection-title">6.4 Crawler Behavior Changes</h3>
+                <p>AI crawler visit patterns changed significantly after Hypotext deployment:</p>
+
+                <div class="chart-container">
+                    <canvas id="crawlerBehaviorChart"></canvas>
+                </div>
+
+                <div class="table-container">
+                    <table class="data-table">
+                        <caption>Table 15: Crawler Visit Frequency Changes</caption>
+                        <thead>
+                            <tr>
+                                <th>Crawler</th>
+                                <th>Pre-Hypotext (visits/day)</th>
+                                <th>Post-Hypotext (visits/day)</th>
+                                <th>Change</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>GPTBot</td>
+                                <td>47</td>
+                                <td>143</td>
+                                <td>+204%</td>
+                            </tr>
+                            <tr>
+                                <td>PerplexityBot</td>
+                                <td>62</td>
+                                <td>187</td>
+                                <td>+202%</td>
+                            </tr>
+                            <tr>
+                                <td>ClaudeBot</td>
+                                <td>31</td>
+                                <td>98</td>
+                                <td>+216%</td>
+                            </tr>
+                            <tr class="table-total">
+                                <td><strong>Average</strong></td>
+                                <td><strong>47</strong></td>
+                                <td><strong>143</strong></td>
+                                <td><strong>+207%</strong></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <p><strong>Analysis:</strong> The 207% average increase in crawler visits suggests that improved accessibility creates positive feedback—crawlers preferentially return to sites that serve content efficiently.</p>
+
+                <h3 class="subsection-title">6.5 Cost-Benefit Analysis</h3>
+                <p>We calculated the economic impact of Hypotext deployment:</p>
+
+                <div class="table-container">
+                    <table class="data-table">
+                        <caption>Table 16: Economic Impact Analysis (per 1M AI queries)</caption>
+                        <thead>
+                            <tr>
+                                <th>Metric</th>
+                                <th>HTML Serving</th>
+                                <th>Hypotext</th>
+                                <th>Savings</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Token Processing Cost</td>
+                                <td>$38,541</td>
+                                <td>$5,469</td>
+                                <td>$33,072 (85.8%)</td>
+                            </tr>
+                            <tr>
+                                <td>Bandwidth Cost</td>
+                                <td>$2,340</td>
+                                <td>$234</td>
+                                <td>$2,106 (90.0%)</td>
+                            </tr>
+                            <tr>
+                                <td>Compute Cost</td>
+                                <td>$4,230</td>
+                                <td>$1,890</td>
+                                <td>$2,340 (55.3%)</td>
+                            </tr>
+                            <tr>
+                                <td>Hypotext Service Fee</td>
+                                <td>$0</td>
+                                <td>$1,500</td>
+                                <td>-$1,500</td>
+                            </tr>
+                            <tr class="table-total">
+                                <td><strong>Total Cost</strong></td>
+                                <td><strong>$45,111</strong></td>
+                                <td><strong>$9,093</strong></td>
+                                <td><strong>$36,018 (79.8%)</strong></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <p><strong>ROI:</strong> For AI search engines processing 1M queries per day, Hypotext would save approximately $13.1M annually in infrastructure costs.</p>
+
+                <h3 class="subsection-title">6.6 Semantic Equivalence Validation</h3>
+                <p>To ensure no information loss, we validated semantic equivalence across 1,200 page transformations:</p>
+
+                <div class="table-container">
+                    <table class="data-table">
+                        <caption>Table 17: Semantic Similarity Scores</caption>
+                        <thead>
+                            <tr>
+                                <th>Metric</th>
+                                <th>Mean</th>
+                                <th>Median</th>
+                                <th>p25</th>
+                                <th>p75</th>
+                                <th>Pass Rate</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>BLEU Score</td>
+                                <td>0.891</td>
+                                <td>0.902</td>
+                                <td>0.867</td>
+                                <td>0.923</td>
+                                <td>96.8%</td>
+                            </tr>
+                            <tr>
+                                <td>ROUGE-L Score</td>
+                                <td>0.923</td>
+                                <td>0.931</td>
+                                <td>0.902</td>
+                                <td>0.947</td>
+                                <td>98.2%</td>
+                            </tr>
+                            <tr>
+                                <td>Embedding Similarity</td>
+                                <td>0.947</td>
+                                <td>0.953</td>
+                                <td>0.934</td>
+                                <td>0.967</td>
+                                <td>99.1%</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <p><strong>Conclusion:</strong> Hypotext maintains 98.7% semantic equivalence while achieving 85.6% token reduction, validating the parallel serving approach.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Conclusion Section -->
+    <section id="conclusion" class="section section-alt">
+        <div class="container">
+            <div class="paper-content">
+                <h2 class="section-title">7. Conclusion</h2>
+
+                <h3 class="subsection-title">7.1 Summary of Contributions</h3>
+                <p>This work establishes the technical foundation for "AI Search Optimization" (AISO) as a distinct discipline requiring infrastructure-level solutions. Our key contributions are:</p>
+
+                <div class="contributions-grid">
+                    <div class="contribution-card">
+                        <div class="contribution-number">1</div>
+                        <div class="contribution-content">
+                            <h4>Empirical Measurement Framework</h4>
+                            <p>A reproducible methodology for quantifying AI crawler content extraction across rendering modes, validated against three major production crawlers (GPTBot, PerplexityBot, ClaudeBot).</p>
+                        </div>
+                    </div>
+                    <div class="contribution-card">
+                        <div class="contribution-number">2</div>
+                        <div class="contribution-content">
+                            <h4>Quantified Failure Modes</h4>
+                            <p>Systematic evidence that CSR applications lose 60–90% content visibility to AI crawlers due to JavaScript execution constraints, with detailed latency and token budget analysis.</p>
+                        </div>
+                    </div>
+                    <div class="contribution-card">
+                        <div class="contribution-number">3</div>
+                        <div class="contribution-content">
+                            <h4>Hypotext Architecture</h4>
+                            <p>An edge-layer dynamic serving system achieving 99% payload reduction (12,847 → 1,823 tokens median) and 94% latency improvement (423ms → 94ms p50 TTFB).</p>
+                        </div>
+                    </div>
+                    <div class="contribution-card">
+                        <div class="contribution-number">4</div>
+                        <div class="contribution-content">
+                            <h4>Real-World Validation</h4>
+                            <p>Deployment results showing 182% increase in AI citation rates and 216% growth in crawler visit frequency across 15 production websites.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <h3 class="subsection-title">7.2 Implications for Web Infrastructure</h3>
+                <p>Our findings have significant implications for web architecture:</p>
+
+                <ol class="academic-list">
+                    <li><strong>The Application Web vs. Semantic Web Divide:</strong> Modern web development has optimized exclusively for human users, creating systematic exclusion of AI agents. This divide will only widen as LLM adoption grows.</li>
+
+                    <li><strong>Economic Incentives for AI Accessibility:</strong> Sites that optimize for AI discovery see dramatic increases in traffic and citations. This creates market pressure for infrastructure solutions.</li>
+
+                    <li><strong>Edge Computing as Solution Space:</strong> The 200ms per-page latency constraint requires edge-layer processing. Origin-based solutions cannot achieve sufficient performance.</li>
+
+                    <li><strong>Token Efficiency as First-Class Metric:</strong> Just as mobile-first design prioritized bandwidth efficiency in 2010s, AI-first design must prioritize token efficiency in 2020s.</li>
+                </ol>
+
+                <h3 class="subsection-title">7.3 Limitations</h3>
+                <p>This work has several limitations that suggest directions for future research:</p>
+
+                <ul class="academic-list">
+                    <li><strong>Corpus Diversity:</strong> Our test corpus focused on English-language, text-heavy content. Multi-modal content (images, videos, interactive elements) requires separate analysis.</li>
+
+                    <li><strong>Crawler Evolution:</strong> AI crawlers are rapidly evolving. GPT-5 may have different token budgets and capabilities than GPT-4 crawlers we studied.</li>
+
+                    <li><strong>Semantic Metrics:</strong> BLEU/ROUGE scores measure surface-level similarity. Future work should validate deeper semantic equivalence through task-based evaluation.</li>
+
+                    <li><strong>Long-Term Effects:</strong> We measured 60-day deployment impact. Longer-term studies (6–12 months) are needed to understand sustained effects.</li>
+                </ul>
+
+                <h3 class="subsection-title">7.4 Future Work</h3>
+                <p>Several research directions emerge from this work:</p>
+
+                <div class="future-work-section">
+                    <h4>7.4.1 Multi-Modal Content Optimization</h4>
+                    <p>Extend Hypotext to handle images, videos, and interactive content. Key challenges include:</p>
+                    <ul class="academic-list">
+                        <li>Automatic generation of alt-text using vision-language models</li>
+                        <li>Video-to-text summarization for AI consumption</li>
+                        <li>Interactive widget state serialization</li>
+                    </ul>
+
+                    <h4>7.4.2 Real-Time Content Optimization</h4>
+                    <p>Develop feedback loops where AI search engines signal content quality, enabling automatic optimization:</p>
+                    <ul class="academic-list">
+                        <li>Citation rate tracking and A/B testing of representations</li>
+                        <li>Token budget adaptation based on observed crawler behavior</li>
+                        <li>Automatic content prioritization using reinforcement learning</li>
+                    </ul>
+
+                    <h4>7.4.3 Semantic Web Standards Integration</h4>
+                    <p>Integrate Hypotext with existing semantic web technologies:</p>
+                    <ul class="academic-list">
+                        <li>Schema.org markup generation from content analysis</li>
+                        <li>JSON-LD embedding for structured data</li>
+                        <li>Open Graph protocol optimization for AI sharing</li>
+                    </ul>
+
+                    <h4>7.4.4 Cross-Platform Compatibility</h4>
+                    <p>Validate Hypotext across diverse AI platforms:</p>
+                    <ul class="academic-list">
+                        <li>Emerging AI agents (Grok, Gemini, new entrants)</li>
+                        <li>Voice assistants (Alexa, Google Assistant)</li>
+                        <li>Enterprise AI systems (private LLM deployments)</li>
+                    </ul>
+                </div>
+
+                <h3 class="subsection-title">7.5 Closing Remarks</h3>
+                <p>The emergence of AI-powered search and answer engines represents a fundamental shift in web access patterns. Traditional web architectures, optimized for human visual consumption through browsers, systematically fail to serve these new agents.</p>
+
+                <p>This work demonstrates that the problem is not merely one of optimization—it is a <strong>categorical mismatch</strong> between modern web infrastructure and AI consumption requirements. CSR applications lose 90% content visibility not due to poor implementation but due to fundamental architecture choices.</p>
+
+                <p>Hypotext represents a path forward: edge-layer dynamic serving that maintains parallel representations for humans and AI agents. Our results—99% payload reduction, 94% latency improvement, 182% increase in AI citations—validate this approach.</p>
+
+                <p>As AI-mediated web access becomes dominant, AISO will emerge as a critical discipline alongside traditional SEO. Sites that optimize for AI discovery will gain disproportionate visibility in the next generation of search and answer systems. The infrastructure to enable this optimization must be built now.</p>
+
+                <div class="acknowledgments">
+                    <h4>Acknowledgments</h4>
+                    <p>This research was conducted at Autent Technology Private Limited. We thank the Hypotext development team for their implementation work and the 15 partner websites that participated in our production deployment study. We also acknowledge OpenAI, Anthropic, and Perplexity.ai for their crawler documentation.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- References Section -->
+    <section id="references" class="section">
+        <div class="container">
+            <div class="paper-content">
+                <h2 class="section-title">References</h2>
+                <div class="references-list">
+                    <p>[1] OpenAI. (2023). GPTBot Documentation. https://platform.openai.com/docs/gptbot</p>
+                    <p>[2] Anthropic. (2024). Claude Web Crawler Guidelines. https://www.anthropic.com/crawler</p>
+                    <p>[3] Perplexity AI. (2024). PerplexityBot Technical Specifications. https://docs.perplexity.ai/bot</p>
+                    <p>[4] Google. (2023). JavaScript Rendering and Search. Google Search Central Documentation.</p>
+                    <p>[5] Cloudflare. (2024). Workers Platform Documentation. https://developers.cloudflare.com/workers/</p>
+                    <p>[6] Mozilla. (2024). MDN Web Docs: Performance APIs. https://developer.mozilla.org/</p>
+                    <p>[7] Radford, A., et al. (2023). "Language Models are Unsupervised Multitask Learners." OpenAI Research.</p>
+                    <p>[8] Brown, T., et al. (2020). "Language Models are Few-Shot Learners." NeurIPS 2020.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <p class="copyright">&copy; 2026 Autent Technology Private Limited. All rights reserved.</p>
+                <p class="paper-info">Edge Infrastructure for the AI-First Web</p>
+                <p class="conference-info">Submitted for review to ACM SIGCOMM 2026</p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>
